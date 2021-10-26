@@ -1,10 +1,10 @@
-using System;
-using System.Reflection;
-using System.Threading.Tasks;
 using LightBDD.Core.Execution;
 using LightBDD.Core.Extensibility;
 using LightBDD.Core.Extensibility.Results;
 using LightBDD.Framework.Implementation;
+using System;
+using System.Reflection;
+using System.Threading.Tasks;
 
 namespace LightBDD.Framework.Scenarios.Implementation
 {
@@ -46,7 +46,8 @@ namespace LightBDD.Framework.Scenarios.Implementation
 
         private class AsyncStepExecutor
         {
-            private static readonly MethodInfo AsCompositeStepMethod = ((Func<Task, Task<IStepResultDescriptor>>)AsCompositeStep<IStepResultDescriptor>).GetMethodInfo().GetGenericMethodDefinition();
+            private static readonly MethodInfo AsResultDescriptorMethod = ((Func<Task, Task<IStepResultDescriptor>>)AsResultDescriptor<IStepResultDescriptor>).GetMethodInfo().GetGenericMethodDefinition();
+            private static readonly MethodInfo WrapIntoResultDescriptorMethod = ((Func<Task, Task<IStepResultDescriptor>>)WrapIntoResultDescriptor<IStepResultDescriptor>).GetMethodInfo().GetGenericMethodDefinition();
             private readonly Func<Task> _invocation;
 
             public AsyncStepExecutor(Func<Task> invocation)
@@ -59,17 +60,7 @@ namespace LightBDD.Framework.Scenarios.Implementation
                 var task = _invocation.Invoke();
                 await ScenarioExecutionFlow.WrapScenarioExceptions(task);
 
-                if (HasResultDescriptor(task))
-                    return await ConvertToResultDescriptor(task);
-
-                return DefaultStepResultDescriptor.Instance;
-            }
-
-            private static Task<IStepResultDescriptor> ConvertToResultDescriptor(Task task)
-            {
-                return (Task<IStepResultDescriptor>)AsCompositeStepMethod
-                    .MakeGenericMethod(task.GetType().GetTypeInfo().GenericTypeArguments)
-                    .Invoke(null, new object[] { task });
+                return await ConvertToResultDescriptor(task);
             }
 
             private static bool HasResultDescriptor(Task task)
@@ -81,9 +72,50 @@ namespace LightBDD.Framework.Scenarios.Implementation
                     && typeof(IStepResultDescriptor).GetTypeInfo().IsAssignableFrom(taskType.GenericTypeArguments[0].GetTypeInfo());
             }
 
-            private static async Task<IStepResultDescriptor> AsCompositeStep<T>(Task stepTask) where T : IStepResultDescriptor
+            private static bool IsGeneric(Task task)
+            {
+                var taskType = task.GetType().GetTypeInfo();
+                return taskType.IsGenericType && taskType.GenericTypeArguments.Length == 1;
+            }
+
+            private static Task<IStepResultDescriptor> AsResultDescriptor(Task task)
+            {
+                return (Task<IStepResultDescriptor>)AsResultDescriptorMethod
+                                                    .MakeGenericMethod(task.GetType().GetTypeInfo().GenericTypeArguments)
+                                                    .Invoke(null, new object[] { task });
+            }
+
+            private static async Task<IStepResultDescriptor> AsResultDescriptor<T>(Task stepTask) where T : IStepResultDescriptor
             {
                 return await (Task<T>)stepTask;
+            }
+
+            private static Task<IStepResultDescriptor> WrapIntoResultDescriptor(Task task)
+            {
+                return (Task<IStepResultDescriptor>)WrapIntoResultDescriptorMethod
+                                                    .MakeGenericMethod(task.GetType().GetTypeInfo().GenericTypeArguments)
+                                                    .Invoke(null, new object[] { task });
+            }
+
+            private static async Task<IStepResultDescriptor> WrapIntoResultDescriptor<T>(Task stepTask)
+            {
+                var result = await (Task<T>)stepTask;
+                return new StepResultDescriptor(result);
+            }
+
+            private static async Task<IStepResultDescriptor> ConvertToResultDescriptor(Task task)
+            {
+                if (!IsGeneric(task))
+                {
+                    return DefaultStepResultDescriptor.Instance;
+                }
+
+                if (!HasResultDescriptor(task))
+                {
+                    return await WrapIntoResultDescriptor(task);
+                }
+
+                return await AsResultDescriptor(task);
             }
         }
 

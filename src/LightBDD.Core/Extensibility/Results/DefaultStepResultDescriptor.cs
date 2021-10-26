@@ -9,6 +9,6 @@ namespace LightBDD.Core.Extensibility.Results
         /// Instance that should be used if <see cref="DefaultStepResultDescriptor"/> is expected to be returned.
         /// </summary>
         public static readonly IStepResultDescriptor Instance = new DefaultStepResultDescriptor();
-        private DefaultStepResultDescriptor() { }
+        private protected DefaultStepResultDescriptor() { }
     }
 }
